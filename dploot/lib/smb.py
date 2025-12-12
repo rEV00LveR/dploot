@@ -21,7 +21,7 @@ from impacket.examples.secretsdump import RemoteOperations, LocalOperations
 from impacket.smb3structs import (
     FILE_READ_DATA,
     FILE_OPEN,
-    FILE_NON_DIRECTORY_FILE
+    FILE_NON_DIRECTORY_FILE, SMB2_DIALECT_311
 )
 
 from dploot.lib.wmi import DPLootWmiExec
@@ -72,8 +72,8 @@ class DPLootRemoteSMBConnection(DPLootSMBConnection):
             self.smb_session = SMBConnection(
                 kdc if kdc else self.target.address,
                 kdc if kdc else self.target.address,
-                None,
-                preferredDialect=SMB_DIALECT,
+                "test",
+                preferredDialect=SMB2_DIALECT_311,
             )
             self.smbv1 = True
         except OSError as e:
@@ -95,7 +95,8 @@ class DPLootRemoteSMBConnection(DPLootSMBConnection):
             self.smb_session = SMBConnection(
                 kdc if kdc else self.target.address,
                 kdc if kdc else self.target.address,
-                None,
+                "test",
+                preferredDialect=SMB2_DIALECT_311,
             )
             self.smbv1 = False
         except OSError as e:
