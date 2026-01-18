@@ -268,10 +268,18 @@ class BrowserTriage(Triage):
                                 intermediate_key, masterkeys=self.masterkeys
                             )
                             if masterkey:
-                                app_bound_key = AppBoundKey(decrypt_blob(
-                                    blob_bytes=intermediate_key, masterkey=masterkey
-                                )).key
-                    profiles = aesStateKey_json['profile']['profiles_order']
+                                try:
+                                    app_bound_key = AppBoundKey(decrypt_blob(
+                                        blob_bytes=intermediate_key, masterkey=masterkey
+                                    )).key
+                                except Exception as e:
+                                    logging.warn(f"{browser.upper()} for {user} key decryption error! {e}")
+                                    app_bound_key = None
+
+                    profiles = aesStateKey_json['profile'].get('profiles_order')
+                    if not profiles:
+                        profiles = aesStateKey_json['profile']['last_active_profiles']
+
                 except KeyError as e:
                     logging.debug(f"Key not found! {repr(e)}")
                     # logging.debug(f"{aesStateKey_json=}")
@@ -294,12 +302,15 @@ class BrowserTriage(Triage):
                     db = sqlite3.connect(fh.name)
                     cursor = db.cursor()
                     query = cursor.execute(
-                        "SELECT action_url, username_value, password_value FROM logins"
+                        "SELECT action_url, origin_url, username_value, password_value FROM logins"
                     )
                     lines = query.fetchall()
                     if len(lines) > 0:
-                        for url, username, encrypted_password in lines:
+                        for url_action, url_origin, username, encrypted_password in lines:
                             password = None
+
+                            url = max([url_origin, url_action])
+
                             try:
                                 if encrypted_password[:3] == b"v20":
                                     password = decrypt_chrome_password(
