@@ -1,3 +1,4 @@
+import base64
 from base64 import b64decode
 import logging
 import ntpath
@@ -93,9 +94,20 @@ class MobaXtermMasterPassword:
         ) + b64decode(self.masterpassword_raw_value)
         masterkey = find_masterkey_for_blob(dpapi_blob, masterkeys)
         if masterkey is not None:
+            logging.debug(f"dpapi blob: {base64.b64encode(dpapi_blob)}")
             self.masterpassword_decrypted = decrypt_blob(
                 blob_bytes=dpapi_blob, masterkey=masterkey, entropy=self.entropy
             )
+
+            if not self.masterpassword_decrypted:
+                logging.error(f"masterkey cannot be decrypted via dpapi")
+            else:
+                logging.debug(f"Get decrypted masterpassword: {self.masterpassword_decrypted.decode('utf-8')}")
+
+        else:
+            logging.error(f"masterkey not found for masterpassword {self.masterpassword_raw_value.decode('utf-8')}")
+
+
 
     @property
     def key(self):
@@ -184,7 +196,12 @@ class MobaXtermTriage(Triage):
         mobaxterm_masterpassword = None
         mobaxterm_credentials = []
 
-        mobaxterm_masterpassword, mobaxterm_credentials = self.extract_mobaxtermkeys_for_user_from_files(user, sid)
+        try:
+            mobaxterm_masterpassword, mobaxterm_credentials = self.extract_mobaxtermkeys_for_user_from_files(user, sid)
+        except Exception as e:
+            mobaxterm_masterpassword = None
+            mobaxterm_credentials = []
+
         if not self.conn.local_session and (mobaxterm_masterpassword is None or len(mobaxterm_credentials) == 0):
 
             logging.debug(f"Triaging MobaXterm for user {user}")
@@ -444,7 +461,7 @@ class MobaXtermTriage(Triage):
         ans = rrp.hOpenUsers(self.conn.remote_ops._RemoteOperations__rrp)
         regHandle = ans["phKey"]
         regKey = ntpath.join(sid, self.mobaxterm_registry_key_path)
-
+        logging.debug(f"{user} regHandle path: {ntpath.join(regKey, self.mobaxterm_masterpassword_registry_key)}")
         # Extract M
         try:
             ans2 = rrp.hBaseRegOpenKey(
@@ -460,6 +477,7 @@ class MobaXtermTriage(Triage):
                 self.conn.remote_ops._RemoteOperations__rrp, keyHandle, 0
             )
             name, host = value["lpValueNameOut"].split("@")
+            logging.debug(f"{user} masterkey: {value['lpValueNameOut']}:{b''.join(value['lpData']).decode('utf-8')}")
             mobaxterm_masterpassword_key = MobaXtermMasterPassword(
                 winuser=user,
                 entropy=entropy,
@@ -517,14 +535,18 @@ class MobaXtermTriage(Triage):
             self.mobaxterm_credentials_registry_key,
             self.mobaxterm_passwords_registry_key,
         ]:
-            ans2 = rrp.hBaseRegOpenKey(
-                self.conn.remote_ops._RemoteOperations__rrp,
-                regHandle,
-                ntpath.join(regKey, key),
-                samDesired=rrp.MAXIMUM_ALLOWED
-                | rrp.KEY_ENUMERATE_SUB_KEYS
-                | rrp.KEY_QUERY_VALUE,
-            )
+            try:
+                ans2 = rrp.hBaseRegOpenKey(
+                    self.conn.remote_ops._RemoteOperations__rrp,
+                    regHandle,
+                    ntpath.join(regKey, key),
+                    samDesired=rrp.MAXIMUM_ALLOWED
+                    | rrp.KEY_ENUMERATE_SUB_KEYS
+                    | rrp.KEY_QUERY_VALUE,
+                )
+            except Exception as e:
+                continue
+
             keyHandle = ans2["phkResult"]
             i = 0
             while True:
@@ -548,14 +570,19 @@ class MobaXtermTriage(Triage):
                         mobaxterm_credential = MobaXtermPassword(
                             winuser=user, username=name, password_encrypted=data
                         )
-                    mobaxterm_credential.decrypt(mobaxterm_masterpassword_key.key)
+                    try:
+                        mobaxterm_credential.decrypt(mobaxterm_masterpassword_key.key)
+                    except Exception as e:
+                        mobaxterm_credential.password = "not_decrypted".encode()
+
                     mobaxterm_credentials.append(mobaxterm_credential)
                     i += 1
                     if self.per_loot_callback is not None:
                         self.per_loot_callback(mobaxterm_credential)
                 except rrp.DCERPCSessionError as e:
                     if e.get_error_code() == ERROR_NO_MORE_ITEMS:
-                        break
+                        continue
+                    continue
         return mobaxterm_masterpassword_key, mobaxterm_credentials
 
     @property
