@@ -280,6 +280,9 @@ class BrowserTriage(Triage):
                     if not profiles:
                         profiles = aesStateKey_json['profile']['last_active_profiles']
 
+                    if not profiles:
+                        profiles = []
+
                 except KeyError as e:
                     logging.debug(f"Key not found! {repr(e)}")
                     # logging.debug(f"{aesStateKey_json=}")
